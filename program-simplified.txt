@@ -1,0 +1,274 @@
+#include <SPI.h>  // Serial Peripheral Interface
+#include <RFID.h>  // Radio-Frequency IDentification
+#include <Servo.h>  // Servo motor
+
+/* RFID reader */
+/*
+RC522 MODULE    Uno/Nano    
+SDA             D10
+SCK             D13
+MOSI            D11
+MISO            D12
+IRQ             N/A
+GND             GND
+RST             D9
+3.3V            3.3V
+*/
+  
+/* RFID reader pin definition */
+/* SUNFOUNDER RFID-RC522 RFID Reader */
+#define SDA_DIO 10  // SDA pin
+#define RESET_DIO 9  // RST pin
+#define delayRead 100 // Time delay 
+#define delayLed 200
+RFID RC522(SDA_DIO, RESET_DIO);  // RFID instance
+
+/* Servos */
+/* TowerPro MicroServo 9g SG90 Servo Motor */
+#define servoOpen 10  // angle corresponding to "open" state
+#define servoClosed 100  // angle corresponding to "closed" state
+#define pinServoL 5  // Left-side servo signal pin
+#define pinServoR 6  // Right-side servo signal pin
+Servo myServoL;  // Servo instance
+Servo myServoR;  // Servo instance
+
+/* Distance Meters */
+/* HC-SR04 Ultrasonic Sensor */
+#define pinDistTrig 3  // Trigger pin
+#define pinDistEchoL 2  // Echo pin for Left-side detector 
+#define pinDistEchoR 4 // Echo pin for Right-side detector
+// Delay between consecutive measurements
+#define millisInterval 10000  // one distance read every 10 seconds
+long millis=0;
+long millisLast=0;
+
+/* Leds */
+#define pinLedL 7  // Left-side LED
+#define pinLedR 8  // Right-side LED
+
+struct Led {
+  byte pin;
+  long blinkInterval;  // in ms: 0=OFF; >100000=Always ON
+  byte dutyCycle;  // time the LED stays ON in ms
+  long lastMillis;
+  bool bState;  // LED State: true=LED ON; false=LED OFF
+  void Manage() {  // manages the LED state according to the blinkInterval.
+    long mills = millis();
+    if(blinkInterval==0) {  // if blinkInterval=0, turn LED OFF
+      if(bState) {
+        bState=false;
+        SetLed();
+      }
+    } else
+    if(blinkInterval>=100000) {  // if blinkInterval>100000, turn LED ON
+      if(!bState) {
+        bState=true;
+        SetLed();
+      }
+    } else
+    if(millis-lastMillis>blinkInterval) {  // blinking mode
+      bState=!bState;  // change state so the LED blinks
+      lastMillis=millis;  // reset the lastMillis
+      SetLed();
+    }
+  }
+  void SetBlinkInterval(long blinkInterval, byte dutyCycle=50) {
+    this->blinkInterval = blinkInterval;
+    this->dutyCycle = dutyCycle;
+    if(lastMillis==0) lastMillis=millis();  // if there is no time record, read from millis()
+  }
+  void SetLed() {
+    digitalWrite(pin, bState?HIGH:LOW);  // turn the LED ON or OFF according to the state
+  }
+};
+Led ledL = { pinLedL };  // create Led instances
+Led ledR = { pinLedR };
+
+// in order to manage more than one container
+struct Jar {
+  Servo* pServo;  // pointer to servo object
+  byte pinServo;
+  Led* pLed;  // pointer to Led object
+}; 
+Jar jarL = {&myServoL, pinServoL, &ledL};  // create Jar instances
+Jar jarR = {&myServoR, pinServoR, &ledR};
+
+// in initializing this object, insert the code of the accepted magnetic tags 
+const byte NMaxCats = 4;  // maximum number of cats manageable
+struct Cat {
+  String name;  // cat's name
+  String code;  // tag code
+  byte nShakes;  //number of shakes per feeding event
+  word secsMinDelay;  // minimum delay between consecutive meals
+  Jar* pJar;  // pointer to Jar object
+  long millisLastFeed;  // time since last meal in ms
+  void Feed();  // to be defined
+} vCats[NMaxCats]={  // vector of Cat instances
+  {"Renato" , "14B4B19988", 5, 60, &jarL},
+  {"Gattina", "A31BC027A", 5, 60, &jarR},
+};
+byte nCats=2;  // actual number of cats being handled
+
+void setup(){
+
+  /* Setting some Serial parameters */ 
+  Serial.begin(9600);  // baud rate
+  Serial.setTimeout(100);  // wait 100 ms before timeout
+
+  /* Abilitating the SPI*/
+  SPI.begin();
+
+  /* Initializing the RFID reader */
+  RC522.init();
+
+  /* Initializing the servos */
+  InitServo(myServoL, pinServoL);  // call InitServo function
+  InitServo(myServoR, pinServoR);
+
+  /* Initializing the Distance Meters */
+  pinMode(pinDistTrig, OUTPUT); 
+  pinMode(pinDistEchoL, INPUT); 
+  pinMode(pinDistEchoR, INPUT); 
+
+  /* Initializing the LEDs */
+  pinMode(ledL.pin, OUTPUT); 
+  pinMode(ledR.pin, OUTPUT); 
+  ledL.SetBlinkInterval(100000);  // turn ON the LEDs
+  ledR.SetBlinkInterval(100000);
+
+  Serial.println(F("Setup OK"));
+}
+
+void loop()
+{
+  /* Distance Meters */
+  millis=millis();
+  
+  if(millis-millisLast>=millisInterval) {
+    millisLast = millis;
+    ManageDistance(pinDistEchoL);
+    //ManageDistance(pinDistEchoR);
+  }
+  
+  // LEDs
+  ledL.Manage();  // set the LED to a mode according to its state
+  ledR.Manage();
+
+  // If a tag is read
+  if (RC522.isCard()){
+    
+    // Read the code
+    RC522.readCardSerial();
+    String codeRead="";
+
+    printDelay(millis);
+    Serial.println(F(" - Code read:"));
+  
+    // The code is written in the string
+    for(byte i = 0; i <= 4; i++)
+    {
+      codeRead+= String (RC522.serNum[i], HEX);
+      codeRead.toUpperCase();
+    }
+    Serial.println(codeRead);
+
+    byte iCat=0;
+    for(; iCat<nCats; ++iCat) {
+      Cat& cat = vCats[iCat];
+      if(verifyCode(codeRead, Cat.code)) {
+        Serial.print(F("Tag authorized for cat "));
+        Serial.println(Cat.name);
+
+        if(cat.millisLastFeed!=0 && millis-cat.millisLastFeed<cat.secsMinDelay*1000) {
+          Serial.println(F("Too soon!"));
+        } else {
+          cat.millisLastFeed=millis;
+
+          cat.Feed();
+        }
+ 
+        break; // OK
+      }
+    }
+    if(iCat>=nCats) {  // none of the cats corresponded to the tag
+      Serial.println(F("Unauthorized tag"));
+    }
+    delay(delayRead);
+  }
+}
+// This function verifies whether the code is authorized
+boolean verifyCode(String codeRead, String codeAuthorized){
+  if(codeRead.equals(codeAuthorized)){
+    return true;
+  }else{
+    return false;
+  }
+}
+
+void printDelay(long int millis) {
+    Serial.print(millis/3600000);  // hours
+    Serial.print(F("h ")); 
+    Serial.print((millis%3600000)/60000);  // minutes
+    Serial.print(F("m "));
+    Serial.print((millis%60000)/1000);  // seconds
+    Serial.print(F("."));
+    Serial.print((millis%1000)/100);  // tenths of second
+    Serial.print((millis%100)/10);  // hundredths of second
+    Serial.print(F("s"));
+}
+
+ /* return distance in cm */
+int ManageDistance(int pinDistEcho) {
+  // set the Trigger LOW
+  digitalWrite( pinDistTrig, LOW );
+  // send a 10-microsecond pulse to Trigger
+  digitalWrite( pinDistTrig, HIGH );
+  delayMicroseconds( 10 );
+  digitalWrite( pinDistTrig, LOW );
+
+  long duration = pulseIn( pinDistEcho, HIGH );  // returns pulse length in microseconds
+  long distance = 0.0343 * duration / 2;  // speed of sound in air=343 m/s
+
+  Led* pLed = (pinDistEcho==pinDistEchoL)? &ledL : &ledR;  // choose the corresponding LED
+  if(distance<9) pLed->SetBlinkInterval(100000);  // set LED ON
+  else if(distance<11) pLed->SetBlinkInterval(500);  // slow blinking
+  else pLed->SetBlinkInterval(100);  // fast blinking
+ 
+  // after 38 seconds it it considered "out of reach"
+  Serial.print((pinDistEcho==pinDistEchoL)?F("Left: "):F("Right: "));
+  Serial.print(F("distance: "));
+  if( duration > 38000 ){
+    Serial.println(F("Out of reach"));
+  }else{
+    Serial.print(distance); 
+    Serial.println(F("cm"));
+  }
+  return distance;
+}
+
+// servo motor initialization
+void InitServo(Servo& servo, int pinServo) {
+  servo.attach(pinServo);  // servo power ON
+  servo.write(servoClosed);  // initialize to the "closed" state
+  delay(600);  // wait 0.6 seconds
+  servo.detach();  // servo power OFF
+}
+
+// Feed function of the Cat struct
+void Cat::Feed() {
+  Serial.print(F("Feeding cat "));
+  Serial.println(this->name);
+  
+  this->pJar->pServo->attach(this->pJar->pinServo);  // servo power ON
+  this->pJar->pServo->write(servoOpen);  // set the servo to "open" state
+  delay(200);  // hold for 0.2 seconds
+  for(int i=0; i<this->nShakes; ++i) {  // shake
+    this->pJar->pServo->write(servoOpen-10);
+    delay(200);
+    this->pJar->pServo->write(servoOpen+30);
+    delay(200);
+  }
+  this->pJar->pServo->write(servoClosed);
+  delay(600);
+  this->pJar->pServo->detach();  // servo power OFF
+}

@@ -1,0 +1,755 @@
+#include <EEPROM.h>  // Electrically Erasable Programmable Read-Only Memory
+#include <SPI.h>  // Serial Peripheral Interface
+#include <RFID.h>  // Radio-Frequency IDentification
+#include <Servo.h>  // Servo motor
+
+/* RFID reader */
+/*
+RC522 MODULE    Uno/Nano    
+SDA             D10
+SCK             D13
+MOSI            D11
+MISO            D12
+IRQ             N/A
+GND             GND
+RST             D9
+3.3V            3.3V
+*/
+  
+/* RFID reader pin definition */
+/* SUNFOUNDER RFID-RC522 RFID Reader */
+#define SDA_DIO 10  // SDA pin
+#define RESET_DIO 9  // RST pin
+#define delayRead 100 // Time delay 
+#define delayLed 200
+RFID RC522(SDA_DIO, RESET_DIO);  // RFID instance
+
+/* Servos */
+/* TowerPro MicroServo 9g SG90 Servo Motor */
+#define servoOpen 10  // angle corresponding to "open" state
+#define servoClosed 100  // angle corresponding to "closed" state
+#define pinServoL 5  // Left-side servo signal pin
+#define pinServoR 6  // Right-side servo signal pin
+Servo myServoL;  // Servo instance
+Servo myServoR;  // Servo instance
+
+/* Distance Meters */
+/* HC-SR04 Ultrasonic Sensor */
+#define pinDistTrig 3  // Trigger pin
+#define pinDistEchoL 2  // Echo pin for Left-side detector 
+#define pinDistEchoR 4 // Echo pin for Right-side detector
+// Delay between consecutive measurements
+#define millisInterval 10000  // one distance read every 10 seconds
+long millis=0;
+long millisLast=0;
+
+/* Leds */
+#define pinLedL 7  // Left-side LED
+#define pinLedR 8  // Right-side LED
+
+struct Led {
+  byte pin;
+  long blinkInterval;  // in ms: 0=OFF; >100000=Always ON
+  byte dutyCycle;  // time the LED stays ON in ms
+  long lastMillis;
+  bool bState;  // LED State: true=LED ON; false=LED OFF
+  void Manage() {  // manages the LED state according to the blinkInterval.
+    long mills = millis();
+    if(blinkInterval==0) {  // if blinkInterval=0, turn LED OFF
+      if(bState) {
+        bState=false;
+        SetLed();
+      }
+    } else
+    if(blinkInterval>=100000) {  // if blinkInterval>100000, turn LED ON
+      if(!bState) {
+        bState=true;
+        SetLed();
+      }
+    } else
+    if(millis-lastMillis>blinkInterval) {  // blinking mode
+      bState=!bState;  // change state so the LED blinks
+      lastMillis=millis;  // reset the lastMillis
+      SetLed();
+    }
+  }
+  void SetBlinkInterval(long blinkInterval, byte dutyCycle=50) {
+    this->blinkInterval = blinkInterval;
+    this->dutyCycle = dutyCycle;
+    if(lastMillis==0) lastMillis=millis();  // if there is no time record, read from millis()
+  }
+  void SetLed() {
+    digitalWrite(pin, bState?HIGH:LOW);  // turn the LED ON or OFF according to the state
+  }
+};
+Led ledL = { pinLedL };  // create Led instances
+Led ledR = { pinLedR };
+
+// in order to manage more than one container
+struct Jar {
+  Servo* pServo;  // pointer to servo object
+  byte pinServo;
+  Led* pLed;  // pointer to Led object
+}; 
+Jar jarL = {&myServoL, pinServoL, &ledL};  // create Jar instances
+Jar jarR = {&myServoR, pinServoR, &ledR};
+
+// in initializing this object, insert the code of the accepted magnetic tags 
+const byte NMaxCats = 4;  // maximum number of cats manageable
+struct Cat {
+  String name;  // cat's name
+  String code;  // tag code
+  byte nShakes;  //number of shakes per feeding event
+  word secsMinDelay;  // minimum delay between consecutive meals
+  Jar* pJar;  // pointer to Jar object
+  long millisLastFeed;  // time since last meal in ms
+  void Feed();  // to be defined
+} vCats[NMaxCats]={  // vector of Cat instances
+  {"Renato" , "14B4B19988", 5, 60, &jarL},
+  {"Gattina", "A31BC027A", 5, 60, &jarR},
+};
+byte nCats=2;  // actual number of cats being handled
+
+// saving the details of each Feed event on the EEPROM
+// the EEPROM is addressed with a circular buffer data structure
+struct Feeds {
+  int offStart;  // memory offset where the data start
+  int offActual;  // memory offset where the current data are written
+  int sizeEEPROM;  // number of memory cells
+  // Bit fields
+  struct Feed {  // one Feed event is stored onto 2-bytes
+    word iCat:2;  // 2 bits for the cat (max 4 cats -> 2 bits)
+    word minsDelay:14;  // 14 bits to store the delay in minutes
+  };
+  void init() {  // initialize the adresses
+    offStart=offActual=8+NMaxCats*24;  // 
+    sizeEEPROM=EEPROM.length();
+  }
+  void addFeed(byte iCat) {  // add a new Feed event to the buffer
+    word wRead;
+    struct Feed wWrite = {0};  // initialization
+    if(iCat!=(byte)(-1)){  // -1 is used to mark the start of the data
+      wWrite.iCat = iCat;
+      wWrite.minsDelay=millis()/60000;  // minutes
+    };
+    if(iCat==(byte)(-1)) Serial.println(F("Feeds cat: start recording!"));
+    else { Serial.print(F("Feeds cat")); Serial.println(iCat); }
+
+    EEPROM.get(this->offActual, wRead);  // read the word at offActual
+    if(wRead==(word)(-1)){  // first terminator
+      if(this->offActual+2*sizeof(word)<=this->sizeEEPROM-sizeof(word)){
+        EEPROM.get(this->offActual+sizeof(word), wRead);
+        if(wRead==(word)(-1)){  // second terminator
+          EEPROM.put(this->offActual+2*sizeof(word), (word)(-1));  // move the second terminator
+        }
+      }
+      if(this->offActual+sizeof(word)<=this->sizeEEPROM-sizeof(word)){
+        EEPROM.put(this->offActual+sizeof(word), (word)(-1));  // move the first terminator
+      }
+      EEPROM.put(this->offActual, wWrite); // write the feeding data
+      this->offActual+=sizeof(word);  // increase offset
+      if(this->offActual>=this->sizeEEPROM) this->offActual=this->offStart;
+    } else {
+      Serial.println(F("Feeds List Error: Absent terminator!"));
+    }
+  }
+  void list() {
+    int nFeeds=0;
+    word wRead;
+    EEPROM.get(this->offActual, wRead);
+    if(wRead==(word)(-1)){  // first terminator
+      if(this->offActual+2*sizeof(word)<=this->sizeEEPROM-sizeof(word)){
+        EEPROM.get(this->offActual+sizeof(word), wRead);
+        if(wRead==(word)(-1)){  // second terminator
+          // I go no further
+        } else {
+          // vi e' un solo terminatore, parto da offActual+sizeof(word) fino alla fine e prosegue come per 2 terminatori
+          int off = this->offActual+sizeof(word);
+          // parto da offStart alla posizione offActual
+          for(;off<=this->sizeEEPROM-sizeof(word);off+=sizeof(word)) {
+            EEPROM.get(off,wRead);
+            Serial.print(((Feed*)&wRead)->iGatto);
+            Serial.print(F(") "));
+            Serial.print(((Feed*)&wRead)->minsDelay);
+            Serial.println(F(" min"));
+            nFeeds++;
+          }
+        }
+      }
+      // parto da offStart alla posizione offActual
+      int off = this->offStart;
+      for(;off<this->offActual;off+=sizeof(word)) {
+        EEPROM.get(off,wRead);
+        Serial.print(((Feed*)&wRead)->iGatto);
+        Serial.print(F(") "));
+        Serial.print(((Feed*)&wRead)->minsDelay);
+        Serial.println(F(" min"));
+        nFeeds++;
+      }
+    }
+    if(nFeeds==0) Serial.println(F("Nessuna dispensazione!!"));
+  }
+} feeds;
+
+/* Per test printDelay() */
+long millsTestLast=0;
+
+void setup(){
+
+  /* Setting some Serial parameters */ 
+  Serial.begin(9600);  // baud rate
+  Serial.setTimeout(100);  // wait 100 ms before timeout
+
+  /* Abilitating the SPI*/
+  SPI.begin();
+
+  /* Initializing the RFID reader */
+  RC522.init();
+
+  /* Initializing the servos */
+  InitServo(myServoL, pinServoL);
+  InitServo(myServoR, pinServoR);
+
+  /* Init Distance Meters */
+  pinMode(pinDistTrig, OUTPUT); 
+  pinMode(pinDistEchoS, INPUT); 
+  pinMode(pinDistEchoD, INPUT); 
+
+  // Gestione Leds
+  pinMode(ledS.pin, OUTPUT); 
+  pinMode(ledD.pin, OUTPUT); 
+  ledS.SetBlinkInterval(100000);
+  ledD.SetBlinkInterval(100000);
+
+  // Legge dati da EEPROM
+  GetConfig();
+
+  Serial.println(F("Setup OK"));
+}
+
+void loop()
+{
+  /* Distance Meters */
+  mills=millis();
+  
+  if(mills-millsLast>=millsInterval) {
+    //Serial.print(F("------------mills: ")); Serial.println(mills);
+    millsLast = mills;
+    ManageDistance(pinDistEchoS);
+    //ManageDistance(pinDistEchoD);
+  }
+
+  manageInput();
+  
+  // Gestione Leds
+  ledS.Manage();
+  ledD.Manage();
+
+  // Se viene letta una tessera
+  if (RC522.isCard())
+  {
+    // Viene letto il suo codice 
+    RC522.readCardSerial();
+    String codiceLetto="";
+
+    printDelay(mills);
+    Serial.println(F(" - Codice delle tessera letto:"));
+  
+    // Viene caricato il codice della tessera, all'interno di una Stringa
+    for(byte i = 0; i <= 4; i++)
+    {
+      codiceLetto+= String (RC522.serNum[i],HEX);
+      codiceLetto.toUpperCase();
+    }
+    Serial.println(codiceLetto);
+
+    byte iGatto=0;
+    for(; iGatto<nGatti; ++iGatto) {
+      Gatto& gatto = vGatti[iGatto];
+      if(verificaCodice(codiceLetto,gatto.codice)) {
+        Serial.print(F("Tessera autorizzata per gatto "));
+        Serial.println(gatto.nome);
+//        accendiLed(ledVerde);
+
+        if(gatto.millsLastFeed!=0 && mills-gatto.millsLastFeed<gatto.secsMinDelay*1000) {
+          Serial.println(F("Richiesta troppo ravvicinata!!"));
+        } else {
+          gatto.millsLastFeed=mills;
+
+          gatto.Feed();
+
+          feeds.addFeed(iGatto);
+        }
+ 
+        break; // OK
+      }
+    }
+    if(iGatto>=nGatti) {
+      Serial.println(F("Tessera non autorizzata"));
+      //accendiLed(ledRosso);
+    }
+    delay(delayRead);
+  }
+}
+// Questa funzione verifica se il codice Letto è autorizzato
+boolean verificaCodice(String codiceLetto, String codiceAutorizzato){
+  if(codiceLetto.equals(codiceAutorizzato)){
+    return true;
+  }else{
+    return false;
+  }
+}
+// Questa funzione permette di accendere un LED per un determinato periodo
+//void accendiLed(int ledPin){
+//  digitalWrite(ledPin,HIGH);
+//  delay(delayLed);
+//  digitalWrite(ledPin,LOW);
+//}
+
+void printDelay(long int mills) {
+    Serial.print(mills/3600000);
+    Serial.print(F("h "));
+    Serial.print((mills%3600000)/60000);
+    Serial.print(F("m "));
+    Serial.print((mills%60000)/1000);
+    Serial.print(F("."));
+    Serial.print((mills%1000)/100); // Una cifra per volta dopo la virgola
+    Serial.print((mills%100)/10);   // Una cifra per volta dopo la virgola
+    Serial.print(F("s"));
+}
+
+ /* return distance in cm */
+int ManageDistance(int pinDistEcho) {
+  //porta bassa l'uscita del trigger
+  digitalWrite( pinDistTrig, LOW );
+  //invia un impulso di 10microsec su trigger
+  digitalWrite( pinDistTrig, HIGH );
+  delayMicroseconds( 10 );
+  digitalWrite( pinDistTrig, LOW );
+
+  long durata = pulseIn( pinDistEcho, HIGH );
+  long distanza = 0.0343 * durata / 2;
+
+  Led* pLed = (pinDistEcho==pinDistEchoS)? &ledS : &ledD;
+  if(distanza<9) pLed->SetBlinkInterval(100000);
+  else if(distanza<11) pLed->SetBlinkInterval(500);
+  else pLed->SetBlinkInterval(100);
+  //else pLed->SetBlinkInterval(0);
+ 
+  //dopo 38ms è fuori dalla portata del sensore
+  Serial.print((pinDistEcho==pinDistEchoS)?F("S: "):F("D: "));
+  Serial.print(F("distanza: "));
+  if( durata > 38000 ){
+    Serial.println(F("Fuori portata   "));
+  }else{
+    Serial.print(distanza); 
+    Serial.println(F("cm     "));
+  }
+  return distanza;
+}
+
+void InitServo(Servo& servo,int pinServo) {
+  servo.attach(pinServo);
+  //servo.write(servOpen);
+  //delay(600);
+  servo.write(servClosed);
+  delay(600);
+  servo.detach();
+}
+
+void Gatto::Feed() {
+  Serial.print(F("Feeding gatto "));
+  Serial.print(this->nome);
+  Serial.println(F("!!"));
+  
+  this->pJar->pServo->attach(this->pJar->pinServo);
+  this->pJar->pServo->write(servOpen);
+  delay(200);
+  for(int i=0; i<this->nShakes; ++i) {
+    this->pJar->pServo->write(servOpen-10);
+    delay(200);
+    this->pJar->pServo->write(servOpen+30);
+    delay(200);
+  }
+  this->pJar->pServo->write(servClosed);
+  delay(600);
+  this->pJar->pServo->detach();
+}
+
+void stampaGatto(int iGatto) {
+  if(iGatto>=0&&iGatto<nGatti) {
+    Gatto gatto = vGatti[iGatto];
+    Serial.print(iGatto); Serial.print(F(") "));
+    Serial.print(gatto.nome); Serial.print(F("; "));
+    Serial.print(gatto.codice); Serial.print(F("; "));
+    Serial.print(gatto.nShakes); Serial.print(F("; "));
+    Serial.print(gatto.secsMinDelay); Serial.print(F("; "));
+    Serial.print((gatto.pJar==&jarS)?F("S"):F("D")); Serial.println(F(";"));
+  } else {
+    Serial.println(F("Indice di gatto errato!!"));
+  }
+}
+void stampaGatti() {
+  Serial.print(F("Gatti N.")); Serial.println(nGatti);
+  for(byte ig=0;ig<nGatti;++ig) {
+    stampaGatto(ig);
+  }
+}
+void stampaFeeds(int iGatto) {
+  // Percorre la EEPROM in cerca delle ultime dispensazioni per il gatto selezionato
+  Serial.println(F("Nessuna dispensazione!!"));
+}
+void stampaFeeds() {
+  // Percorre la EEPROM in cerca delle ultime dispensazioni
+  feeds.list();
+}
+  
+void GetConfig() {
+  
+  // Inizializza gestore lista dispensazioni
+  feeds.init();
+
+  // Legge dati da EEPROM
+  Serial.print(F("EEPROM.length() = "));
+  Serial.println(EEPROM.length());
+  // 1) Verifica che i dati siano del tipo giusto: devono avere la label FEEDER all'offset 0
+  if(1) {
+    const char IdFEEDER[] PROGMEM = "FEEDER";
+    char IdRead[7] = "";
+    bool bOK=true;
+    for(byte i=0;i<6;++i) {
+      IdRead[i]=EEPROM[i];
+      if(IdFEEDER[i]!=IdRead[i]) bOK=false;
+    }
+    Serial.println(IdRead);
+    if(bOK) {
+      Serial.println(F("Formato OK!!"));
+      // Legge anche la versione e il n. di gatti
+      byte version = EEPROM[6];
+      if(version!=0) {
+        Serial.println(F("Versione sconosciuta!!"));
+        bOK=false;
+      } else {
+        Serial.println(F("Versione OK!!"));
+
+        int off=7;
+        nGatti = EEPROM[off];
+        off+=1;
+        
+        Serial.print(F("N.Gatti: "));
+        Serial.println(nGatti);
+        if(nGatti>NMaxGatti) {
+          Serial.print(F("N.Gatti Troppo elevato!! ("));
+          Serial.print(nGatti);
+          Serial.print(F(">"));
+          Serial.print(NMaxGatti);
+          Serial.println(F(")"));
+          nGatti=NMaxGatti;
+        }
+        for(int ig=0;ig<nGatti;++ig){
+          Gatto& gatto = vGatti[ig];
+          char bRead;
+          gatto.nome="";
+          for(byte i=0;i<8;++i) {
+            EEPROM.get(off+i,bRead); // Read gatto.nome
+            if(bRead=='\0') break;
+            gatto.nome+=bRead;
+          }
+          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; nome="); Serial.print(gatto.nome); Serial.println(";"); 
+          off+=9;
+          gatto.codice="";
+          for(byte i=0;i<10;++i) {
+            EEPROM.get(off+i,bRead);  // Read gatto.codice
+            if(bRead=='\0') break;
+            gatto.codice+=bRead;
+          }
+          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; codice="); Serial.print(gatto.codice); Serial.println(";"); 
+          off+=11;
+          EEPROM.get(off,gatto.nShakes);      // Read gatto.nShakes
+          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; nShakes="); Serial.print(gatto.nShakes); Serial.println(";"); 
+          off+=1;
+          EEPROM.get(off,gatto.secsMinDelay); // Read gatto.secsMinDelay
+          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; secsMinDelay="); Serial.print(gatto.secsMinDelay); Serial.println(";"); 
+          off+=2;
+          EEPROM.get(off,bRead);              // Read gatto.jar
+          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; bRead="); Serial.print(bRead); Serial.println(";"); 
+          gatto.pJar=(bRead=='S')? &jarS : &jarD;
+          off+=1;
+        }
+        stampaGatti();
+        
+        // Ricerca posizione di scrittura per lista dispensazioni
+        feeds.offActual=feeds.offStart;
+        // 1) Ricerca primo terminatore
+        word wRead;
+        for(;feeds.offActual<=feeds.sizeEEPROM-sizeof(word);feeds.offActual+=sizeof(word)) {
+          EEPROM.get(feeds.offActual,wRead);
+          if(wRead==(word)(-1)) break;  // Termina ricerca
+        }
+        // Cosa succede se il terminatore non e' stato trovato?
+        if(feeds.offActual>feeds.sizeEEPROM-sizeof(word)) {
+          // Nessun terminatore. Inizializzo ora
+          Serial.println(F("Nessuna Feeds List Trovata!! "));
+          Serial.print(F("Feeds List Init at ")); Serial.println(feeds.offStart);
+          feeds.offActual=feeds.offStart;
+          EEPROM.put(feeds.offActual,(word)(-1));
+          EEPROM.put(feeds.offActual+sizeof(word),(word)(-1));
+        }
+        feeds.addFeed(-1); // Segnala inizio registrazione
+      }
+    } else {
+      Serial.println(F("Formato Sconosciuto!!"));
+    }
+    if(!bOK) {
+      Serial.println(F("Formatting EEPROM!!"));
+      for(byte i=0;i<6;++i) {
+        EEPROM.update(i,IdFEEDER[i]); // Write IdFEEDER
+      }
+      EEPROM.update(6,0); // Write version
+      
+      int off = updateGatti();
+      
+      // Controlla la correttezza delle dimensioni e degli offset||
+      if(feeds.offStart!=off) Serial.println(F("EEPROM Formatting Error!!!"));
+      // Inizializza lista feeds con una coppia di -1
+      Serial.print(F("Feeds List Init at ")); Serial.println(feeds.offStart);
+      feeds.offActual=feeds.offStart;
+      EEPROM.put(feeds.offActual,(word)(-1));
+      EEPROM.put(feeds.offActual+sizeof(word),(word)(-1));
+      feeds.addFeed(-1); // Segnala inizio registrazione
+    }
+  }
+}
+int updateGatti() {
+  int off=7;
+  EEPROM.update(off,nGatti); // Write n.gatti
+  off+=1;
+  for(int ig=0;ig<NMaxGatti;++ig){
+    Gatto gatto = vGatti[ig];
+    for(byte i=0;i<min(8,gatto.nome.length())+1;++i) {
+      EEPROM.put(off+i,gatto.nome[i]); // Write gatto.nome
+    }
+    off+=9;
+    for(byte i=0;i<min(10,gatto.codice.length())+1;++i) {
+      EEPROM.put(off+i,gatto.codice[i]);  // Write gatto.codice
+    }
+    off+=11;
+    EEPROM.put(off,gatto.nShakes);      // Write gatto.nShakes
+    off+=1;
+    EEPROM.put(off,gatto.secsMinDelay); // Write gatto.secsMinDelay
+    off+=2;
+    EEPROM.put(off,(gatto.pJar==&jarS)?'S':'D'); // Write gatto.jar
+    off+=1;
+  }
+  return off;
+}
+
+void manageInput(){
+  byte state=0;
+  byte cmd='\0';
+  byte iGatto=0;
+  String str;
+  while(Serial.available()>0) {
+    // TODO: configuration
+    // leggo un carattere alla volta: abbiamo una serie di comandi: ogni comando è formato da un lettera seguita da un ':' seguita a sua volta da 1 o piu' parametri e terminante con un '\n'
+    byte ch = Serial.read();
+    if(state==99) continue; // Vuota il buffer
+    //Serial.print(ch); // Echo
+    //Serial.print(F(" - state = "));
+    //Serial.println(state);
+    if(ch=='\n'||ch=='\r') continue;/*Non li considera!!*/
+    if(state==0) cmd=ch;
+    if(state==1) if(ch!=':') { state=0; cmd=ch; } /*Reset*/
+                 else { // Verifica correttezza comando
+                   if(cmd=='+');  // Aggiungi gatto
+                   if(cmd=='-');  // Rimuove gatto
+                   if(cmd=='N');  // Imposta nome gatto
+                   if(cmd=='C');  // Imposta codice RFID
+                   if(cmd=='#');  // Imposta quantità di cibo (n. scosse)
+                   if(cmd=='S');  // Secondi di minima attesa tra due dispensazioni
+                   if(cmd=='J');  // Imposta Barattolo corrispondente
+                   if(cmd=='!');  // Lista ultime dispensazioni
+                   if(cmd=='?');  // Ritorna configurazione
+                 }
+    if(state==2) iGatto=ch-'0';
+    if(state==3) if(ch!=':') { state=99; cmd=ch; } /*Vuota il buffer ed esce*/
+                 else { // Verifica correttezza gatto
+                   if(cmd=='#') {  // Imposta quantità di cibo (n. scosse)
+                     // Leggo un intero
+                     //num = Serial.parseInt();
+                     str = Serial.readString();
+                     state++;
+                   }
+                   if(cmd=='J') {  // Imposta Barattolo corrispondente
+                     // Accetta 0 o 1 oppure S o D oppure s o d
+                     //ch = Serial.read();
+                     str = Serial.readString();
+                     state++;
+                   }
+                   if(cmd=='S') {  // Secondi di minima attesa tra due dispensazioni
+                     //num = Serial.parseInt();
+                     str = Serial.readString();
+                     state++;
+                   }
+                   if(cmd=='N') {  // Imposta nome gatto
+                     // Accetta 0 o 1 oppure S o D oppure s o d
+                     str = Serial.readString();
+                     state++;
+                   }
+                   if(cmd=='C') {  // Imposta codice RFID
+                     // Accetta 0 o 1 oppure S o D oppure s o d
+                     str = Serial.readString();
+                     state++;
+                   }
+                 }
+    state++;
+  }
+  if(state==5&&cmd=='#') {  // Imposta quantità di cibo (n. scosse)
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      Gatto& gatto=vGatti[iGatto];
+      char bNum = str.toInt();
+      Serial.print(iGatto); Serial.print(F(") bNum=")); Serial.println(bNum);
+      gatto.nShakes = bNum;
+      updateGatti();
+      stampaGatto(iGatto);
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==5&&cmd=='S') {  // Secondi di minima attesa tra due dispensazioni
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      Gatto& gatto=vGatti[iGatto];
+      int num = str.toInt();
+      Serial.print(iGatto); Serial.print(F(") num=")); Serial.println(num);
+      gatto.secsMinDelay = num;
+      updateGatti();
+      stampaGatto(iGatto);
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==5&&cmd=='J') {  // Imposta Barattolo corrispondente
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      Gatto& gatto=vGatti[iGatto];
+      char ch = str[0];
+      Serial.print(iGatto); Serial.print(F(") ch=")); Serial.println(ch);
+      if(ch=='0'||ch=='S'||ch=='s') gatto.pJar=&jarS;
+      else if(ch=='1'||ch=='D'||ch=='d') gatto.pJar=&jarD;
+      else Serial.println(F("Recipiente inesistente!!"));
+      updateGatti();
+      stampaGatto(iGatto);
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==5&&cmd=='N') {  // Imposta nome gatto
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      Gatto& gatto=vGatti[iGatto];
+      Serial.print(iGatto); Serial.print(F(") str=")); Serial.println(str);
+      gatto.nome=str.substring(0,8);
+      updateGatti();
+      stampaGatto(iGatto);
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==5&&cmd=='C') {  // Imposta codice RFID
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      Gatto& gatto=vGatti[iGatto];
+      Serial.print(iGatto); Serial.print(F(") str=")); Serial.println(str);
+      gatto.codice=str.substring(0,10);
+      updateGatti();
+      stampaGatto(iGatto);
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==3&&cmd=='-') {  // Rimuove gatto
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      Gatto& gatto=vGatti[iGatto];
+      Serial.println(F("Elimina gatto:"));
+      stampaGatto(iGatto);
+      Serial.println();
+      for(++iGatto;iGatto<nGatti;++iGatto) {
+        vGatti[iGatto-1]=vGatti[iGatto];
+      }
+      nGatti--;
+      updateGatti();
+      stampaGatti();
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==3&&cmd=='+') {  // Duplica gatto
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      Gatto& gatto=vGatti[iGatto];
+      if(nGatti<NMaxGatti) {
+        nGatti++;
+        for(byte ig=nGatti-1; ig>iGatto; --ig) {
+          vGatti[ig]=vGatti[ig-1];
+        }
+        updateGatti();
+        stampaGatti();
+      } else {
+        Serial.println(F("Troppi Gatti!!"));
+      }
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==1&&cmd=='+') {  // Duplica gatto in coda
+    Serial.println();
+    if(nGatti<NMaxGatti) {
+      nGatti++;
+      if(nGatti>1) {
+         vGatti[nGatti-1]=vGatti[nGatti-2];
+      }
+      updateGatti();
+      stampaGatti();
+    } else {
+      Serial.println(F("Troppi Gatti!!"));
+    }
+    Serial.println();
+  } else
+  if(state==3&&cmd=='!') {  // Presenta lista ultime dispensazioni per gatto
+    Serial.println();
+    if(iGatto>=0&&iGatto<nGatti) {
+      stampaFeeds(iGatto);
+    } else {
+      Serial.println(F("Indice di gatto errato!!"));
+    }
+    Serial.println();
+  } else
+  if(state==1&&cmd=='!') {  // Presenta lista ultime dispensazioni tutti i gatti
+    Serial.println();
+    stampaFeeds();
+    Serial.println();
+  } else
+  if(state==3&&cmd=='?') {  // Presenta gatto selezionato
+    Serial.println();
+    stampaGatto(iGatto);
+    Serial.println();
+  } else
+  if(state==1&&cmd=='?') {  // Presenta la lista dei gatti
+    Serial.println();
+    stampaGatti();
+    Serial.println();
+  } else
+  if(state!=0&&state!=99) {
+    Serial.println(F("Comando Errato!!"));
+  }
+}
