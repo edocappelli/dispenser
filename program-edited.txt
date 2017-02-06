@@ -373,7 +373,7 @@ void printCat(int iCat) {
     Serial.print(cat.code); Serial.print(F("; "));
     Serial.print(cat.nShakes); Serial.print(F("; "));
     Serial.print(cat.secsMinDelay); Serial.print(F("; "));
-    Serial.print((cat.pJar==&jarL)?F("L"):F("R")); Serial.println(F(";"));
+    Serial.print((cat.pJar==&jarL)?F("Left"):F("Right")); Serial.println(F(";"));
   } else {
     Serial.println(F("Wrong index!!"));
   }
@@ -392,7 +392,8 @@ void printFeeds() {
   // Searching the EEPROM for the last feeds
   feeds.list();
 }
-  
+// READ CONFIGURATION FROM EEPROM FOR EVERY CAT.
+// INITIALIZE TERMINATORS FOR FEED STORAGE.
 void GetConfig() {
   
   // Feed manager initialization
@@ -445,7 +446,7 @@ void GetConfig() {
             if(bRead=='\0') break;
             cat.name+=bRead;
           }
-          Serial.print("Name: "); Serial.print(cat.name); Serial.println(";"); 
+          // Serial.print("Name: "); Serial.print(cat.name); Serial.println(";"); 
           off+=9;  // jump 9 bytes ahead
           cat.code="";
           for(byte i=0; i<10; ++i) {  // read code
@@ -453,82 +454,82 @@ void GetConfig() {
             if(bRead=='\0') break;
             cat.code+=bRead;
           }
-          Serial.print("Code : "); Serial.print(cat.code); Serial.println(";");
+          // Serial.print("Code : "); Serial.print(cat.code); Serial.println(";");
           off+=11;  // jump 11 bytes ahead
           EEPROM.get(off, cat.nShakes);      // Read gatto.nShakes
-          Serial.print("Shakes: "); Serial.print(cat.nShakes); Serial.println(";");
+          // Serial.print("Shakes: "); Serial.print(cat.nShakes); Serial.println(";");
           off+=1;  // jump 1 byte ahead
           EEPROM.get(off, cat.secsMinDelay); // Read cat.secsMinDelay
-          Serial.print("Delay(min): "); Serial.print(cat.secsMinDelay); Serial.println(";");
+          // Serial.print("Delay(min): "); Serial.print(cat.secsMinDelay); Serial.println(";");
           off+=2;  // jump 2 bytes ahead
           EEPROM.get(off, bRead);            // Read cat.jar
-          Serial.print("Jar: "); Serial.print((bRead=='L')? "Left" : "Right"); Serial.println(";"); 
+          // Serial.print("Jar: "); Serial.print((bRead=='L')? "Left" : "Right"); Serial.println(";"); 
           cat.pJar=(bRead=='L')? &jarL : &jarR;  // assign pointer
           off+=1;  // jump 1 byte ahead
         }
-        stampaGatti();
+        printCats();  // print data of all cats found
         
-        // Ricerca posizione di scrittura per lista dispensazioni
-        feeds.offActual=feeds.offStart;
-        // 1) Ricerca primo terminatore
+        // Find address where to start writing feeds
+        feeds.offActual=feeds.offStart;  // initialize offActual
+        // Search for first terminator
         word wRead;
         for(;feeds.offActual<=feeds.sizeEEPROM-sizeof(word);feeds.offActual+=sizeof(word)) {
           EEPROM.get(feeds.offActual,wRead);
-          if(wRead==(word)(-1)) break;  // Termina ricerca
+          if(wRead==(word)(-1)) break;  // End search
         }
-        // Cosa succede se il terminatore non e' stato trovato?
+        // What if the terminator is not found?
         if(feeds.offActual>feeds.sizeEEPROM-sizeof(word)) {
-          // Nessun terminatore. Inizializzo ora
-          Serial.println(F("Nessuna Feeds List Trovata!! "));
+          // No terminator. Initializing now.
+          Serial.println(F("Feeds List Not Found!! "));
           Serial.print(F("Feeds List Init at ")); Serial.println(feeds.offStart);
           feeds.offActual=feeds.offStart;
           EEPROM.put(feeds.offActual,(word)(-1));
           EEPROM.put(feeds.offActual+sizeof(word),(word)(-1));
         }
-        feeds.addFeed(-1); // Segnala inizio registrazione
+        feeds.addFeed(-1); // Signal registration start
       }
     } else {
-      Serial.println(F("Formato Sconosciuto!!"));
+      Serial.println(F("Unknown format!!"));
     }
     if(!bOK) {
       Serial.println(F("Formatting EEPROM!!"));
-      for(byte i=0;i<6;++i) {
+      for(byte i=0; i<6; ++i) {
         EEPROM.update(i,IdFEEDER[i]); // Write IdFEEDER
       }
-      EEPROM.update(6,0); // Write version
+      EEPROM.update(6, 0); // Write version
       
-      int off = updateGatti();
+      int off = updateCats();  // write data for all cats and return offset to write on
       
-      // Controlla la correttezza delle dimensioni e degli offset||
+      // Check offset is correct
       if(feeds.offStart!=off) Serial.println(F("EEPROM Formatting Error!!!"));
-      // Inizializza lista feeds con una coppia di -1
+      // Initialize terminators
       Serial.print(F("Feeds List Init at ")); Serial.println(feeds.offStart);
       feeds.offActual=feeds.offStart;
-      EEPROM.put(feeds.offActual,(word)(-1));
-      EEPROM.put(feeds.offActual+sizeof(word),(word)(-1));
-      feeds.addFeed(-1); // Segnala inizio registrazione
+      EEPROM.put(feeds.offActual, (word)(-1));
+      EEPROM.put(feeds.offActual+sizeof(word), (word)(-1));
+      feeds.addFeed(-1); // Signal registration start
     }
   }
 }
-int updateGatti() {
-  int off=7;
-  EEPROM.update(off,nGatti); // Write n.gatti
+int updateCats() {
+  int off=7;  // after "FEEDER" & version
+  EEPROM.update(off, nCats); // Write cat number
   off+=1;
-  for(int ig=0;ig<NMaxGatti;++ig){
-    Gatto gatto = vGatti[ig];
-    for(byte i=0;i<min(8,gatto.nome.length())+1;++i) {
-      EEPROM.put(off+i,gatto.nome[i]); // Write gatto.nome
+  for(int ic=0; ic<NMaxCats; ++ic){  // for each cat...
+    Cat cat = vCats[ic];
+    for(byte i=0; i<min(8, cat.name.length())+1; ++i) {
+      EEPROM.put(off+i, cat.name[i]); // ...write cat.name
     }
     off+=9;
-    for(byte i=0;i<min(10,gatto.codice.length())+1;++i) {
-      EEPROM.put(off+i,gatto.codice[i]);  // Write gatto.codice
+    for(byte i=0; i<min(10,cat.code.length())+1; ++i) {
+      EEPROM.put(off+i, cat.code[i]);  // ...write cat.code
     }
     off+=11;
-    EEPROM.put(off,gatto.nShakes);      // Write gatto.nShakes
+    EEPROM.put(off, cat.nShakes);      // ...write cat.nShakes
     off+=1;
-    EEPROM.put(off,gatto.secsMinDelay); // Write gatto.secsMinDelay
+    EEPROM.put(off, cat.secsMinDelay); // ...write cat.secsMinDelay
     off+=2;
-    EEPROM.put(off,(gatto.pJar==&jarS)?'S':'D'); // Write gatto.jar
+    EEPROM.put(off, (cat.pJar==&jarL)?'L':'D'); // ...write cat.jar
     off+=1;
   }
   return off;
