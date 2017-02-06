@@ -538,209 +538,208 @@ int updateCats() {
 void manageInput(){
   byte state=0;
   byte cmd='\0';
-  byte iGatto=0;
+  byte iCat=0;
   String str;
+  // Serial.available() returns the number of bytes available in the Serial Receive buffer
   while(Serial.available()>0) {
     // TODO: configuration
-    // leggo un carattere alla volta: abbiamo una serie di comandi: ogni comando è formato da un lettera seguita da un ':' seguita a sua volta da 1 o piu' parametri e terminante con un '\n'
+    /* Read one character at a time. Every command is made up of a letter and a colon (':'), followed by 1 or more parameters and ending with a newline ('/n'). */
     byte ch = Serial.read();
-    if(state==99) continue; // Vuota il buffer
+    if(state==99) continue; // Empty the buffer
     //Serial.print(ch); // Echo
     //Serial.print(F(" - state = "));
     //Serial.println(state);
-    if(ch=='\n'||ch=='\r') continue;/*Non li considera!!*/
+    if(ch=='\n'||ch=='\r') continue; /*Not taken into account!!*/
     if(state==0) cmd=ch;
     if(state==1) if(ch!=':') { state=0; cmd=ch; } /*Reset*/
-                 else { // Verifica correttezza comando
-                   if(cmd=='+');  // Aggiungi gatto
-                   if(cmd=='-');  // Rimuove gatto
-                   if(cmd=='N');  // Imposta nome gatto
-                   if(cmd=='C');  // Imposta codice RFID
-                   if(cmd=='#');  // Imposta quantità di cibo (n. scosse)
-                   if(cmd=='S');  // Secondi di minima attesa tra due dispensazioni
-                   if(cmd=='J');  // Imposta Barattolo corrispondente
-                   if(cmd=='!');  // Lista ultime dispensazioni
-                   if(cmd=='?');  // Ritorna configurazione
+                 else { // Check whether the command is correct
+                   if(cmd=='+');  // Add cat
+                   if(cmd=='-');  // Remove cat
+                   if(cmd=='N');  // Set cat's name
+                   if(cmd=='C');  // Set RFID code
+                   if(cmd=='#');  // Set number of shakes
+                   if(cmd=='S');  // Minimum delay in seconds between feeds
+                   if(cmd=='J');  // Set corresponding jar
+                   if(cmd=='!');  // List last feeds
+                   if(cmd=='?');  // Return configuration
                  }
-    if(state==2) iGatto=ch-'0';
-    if(state==3) if(ch!=':') { state=99; cmd=ch; } /*Vuota il buffer ed esce*/
-                 else { // Verifica correttezza gatto
-                   if(cmd=='#') {  // Imposta quantità di cibo (n. scosse)
-                     // Leggo un intero
+    if(state==2) iCat=ch-'0';
+    if(state==3) if(ch!=':') { state=99; cmd=ch; } /*Empty buffer and exit*/
+                 else {
+                   if(cmd=='#') {  // Set number of shakes
+                     // Read an integer
                      //num = Serial.parseInt();
                      str = Serial.readString();
                      state++;
                    }
-                   if(cmd=='J') {  // Imposta Barattolo corrispondente
-                     // Accetta 0 o 1 oppure S o D oppure s o d
+                   if(cmd=='J') {  // Set corresponding jar
+                     // Accepts 0, 1 or L, R or l, r
                      //ch = Serial.read();
                      str = Serial.readString();
                      state++;
                    }
-                   if(cmd=='S') {  // Secondi di minima attesa tra due dispensazioni
+                   if(cmd=='S') {  // Minimum delay in seconds between feeds
                      //num = Serial.parseInt();
                      str = Serial.readString();
                      state++;
                    }
-                   if(cmd=='N') {  // Imposta nome gatto
-                     // Accetta 0 o 1 oppure S o D oppure s o d
+                   if(cmd=='N') {  // Set cat's name
                      str = Serial.readString();
                      state++;
                    }
-                   if(cmd=='C') {  // Imposta codice RFID
-                     // Accetta 0 o 1 oppure S o D oppure s o d
+                   if(cmd=='C') {  // Set RFID code
                      str = Serial.readString();
                      state++;
                    }
                  }
-    state++;
+    state++;  // increase state
   }
-  if(state==5&&cmd=='#') {  // Imposta quantità di cibo (n. scosse)
+  if(state==5 && cmd=='#') {  // Set number of shakes
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      Gatto& gatto=vGatti[iGatto];
+    if(iCat>=0 && iCat<nCats) {
+      Cat& cat=vCats[iCat];
       char bNum = str.toInt();
-      Serial.print(iGatto); Serial.print(F(") bNum=")); Serial.println(bNum);
-      gatto.nShakes = bNum;
-      updateGatti();
-      stampaGatto(iGatto);
+      Serial.print(iCat); Serial.print(F(") bNum=")); Serial.println(bNum);
+      cat.nShakes = bNum;
+      updateCats();
+      printCat(iCat);
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==5&&cmd=='S') {  // Secondi di minima attesa tra due dispensazioni
+  if(state==5 && cmd=='S') {  // Minimum delay in seconds between feeds
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      Gatto& gatto=vGatti[iGatto];
+    if(iCat>=0 && iCat<nCats) {
+      Cat& cat=vCats[iCat];
       int num = str.toInt();
-      Serial.print(iGatto); Serial.print(F(") num=")); Serial.println(num);
-      gatto.secsMinDelay = num;
-      updateGatti();
-      stampaGatto(iGatto);
+      Serial.print(iCat); Serial.print(F(") num=")); Serial.println(num);
+      cat.secsMinDelay = num;
+      updateCats();
+      stampaCat(iCat);
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==5&&cmd=='J') {  // Imposta Barattolo corrispondente
+  if(state==5 && cmd=='J') {  // Set corresponding jar
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      Gatto& gatto=vGatti[iGatto];
+    if(iCat>=0 && iCat<nCats) {
+      Cat& cat=vCats[iCat];
       char ch = str[0];
-      Serial.print(iGatto); Serial.print(F(") ch=")); Serial.println(ch);
-      if(ch=='0'||ch=='S'||ch=='s') gatto.pJar=&jarS;
-      else if(ch=='1'||ch=='D'||ch=='d') gatto.pJar=&jarD;
-      else Serial.println(F("Recipiente inesistente!!"));
-      updateGatti();
-      stampaGatto(iGatto);
+      Serial.print(iCat); Serial.print(F(") ch=")); Serial.println(ch);
+      if(ch=='0'||ch=='S'||ch=='s') cat.pJar=&jarS;
+      else if(ch=='1'||ch=='D'||ch=='d') cat.pJar=&jarD;
+      else Serial.println(F("Jar not found!!"));
+      updateCats();
+      printCat(iCat);
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==5&&cmd=='N') {  // Imposta nome gatto
+  if(state==5 && cmd=='N') {  // Set cat's name
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      Gatto& gatto=vGatti[iGatto];
-      Serial.print(iGatto); Serial.print(F(") str=")); Serial.println(str);
-      gatto.nome=str.substring(0,8);
-      updateGatti();
-      stampaGatto(iGatto);
+    if(iCat>=0 && iCat<nCats) {
+      Cat& cat=vCats[iCat];
+      Serial.print(iCat); Serial.print(F(") str=")); Serial.println(str);
+      cat.name=str.substring(0,8);
+      updateCats();
+      printCat(iCat);
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==5&&cmd=='C') {  // Imposta codice RFID
+  if(state==5 && cmd=='C') {  // Set RFID code
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      Gatto& gatto=vGatti[iGatto];
-      Serial.print(iGatto); Serial.print(F(") str=")); Serial.println(str);
-      gatto.codice=str.substring(0,10);
-      updateGatti();
-      stampaGatto(iGatto);
+    if(iCat>=0 && iCat<nCats) {
+      Cat& cat=vCats[iCat];
+      Serial.print(iCat); Serial.print(F(") str=")); Serial.println(str);
+      cat.code=str.substring(0,10);
+      updateCats();
+      printCat(iCat);
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==3&&cmd=='-') {  // Rimuove gatto
+  if(state==3 && cmd=='-') {  // Remove cat
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      Gatto& gatto=vGatti[iGatto];
-      Serial.println(F("Elimina gatto:"));
-      stampaGatto(iGatto);
+    if(iCat>=0 && iCat<nCats) {
+      Cat& cat=vCats[iCat];
+      Serial.println(F("Remove cat:"));
+      printCat(iCat);
       Serial.println();
-      for(++iGatto;iGatto<nGatti;++iGatto) {
-        vGatti[iGatto-1]=vGatti[iGatto];
+      for(++iCat; iGatto<nCats; ++iCat) {
+        vCats[iCat-1]=vCats[iCat];
       }
-      nGatti--;
-      updateGatti();
-      stampaGatti();
+      nCats--;
+      updateCats();
+      printCats();
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==3&&cmd=='+') {  // Duplica gatto
+  if(state==3 && cmd=='+') {  // Duplicates cat
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      Gatto& gatto=vGatti[iGatto];
-      if(nGatti<NMaxGatti) {
-        nGatti++;
-        for(byte ig=nGatti-1; ig>iGatto; --ig) {
-          vGatti[ig]=vGatti[ig-1];
+    if(iCat>=0 && iCat<nCats) {
+      Cat& cat=vCats[iCat];
+      if(nCats<NMaxCatsi) {
+        nCats++;
+        for(byte ig=nCats-1; ig>iCats; --ig) {
+          vCats[ig]=vCats[ig-1];
         }
-        updateGatti();
-        stampaGatti();
+        updateCats();
+        printCats();
       } else {
-        Serial.println(F("Troppi Gatti!!"));
+        Serial.println(F("Too many cats!!"));
       }
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==1&&cmd=='+') {  // Duplica gatto in coda
+  if(state==1 && cmd=='+') {  // Duplicates last cat 
     Serial.println();
-    if(nGatti<NMaxGatti) {
-      nGatti++;
-      if(nGatti>1) {
-         vGatti[nGatti-1]=vGatti[nGatti-2];
+    if(nCats<NMaxCats) {
+      nCats++;
+      if(nCats>1) {
+         vCats[nCats-1]=vCats[nCats-2];
       }
-      updateGatti();
-      stampaGatti();
+      updateCats();
+      printCats();
     } else {
-      Serial.println(F("Troppi Gatti!!"));
+      Serial.println(F("Too many cats!!"));
     }
     Serial.println();
   } else
-  if(state==3&&cmd=='!') {  // Presenta lista ultime dispensazioni per gatto
+  if(state==3 && cmd=='!') {  // Show last feeds for this cat
     Serial.println();
-    if(iGatto>=0&&iGatto<nGatti) {
-      stampaFeeds(iGatto);
+    if(iCat>=0 && iCat<nCats) {
+      stampaFeeds(iCat);
     } else {
-      Serial.println(F("Indice di gatto errato!!"));
+      Serial.println(F("Wrong cat index!!"));
     }
     Serial.println();
   } else
-  if(state==1&&cmd=='!') {  // Presenta lista ultime dispensazioni tutti i gatti
+  if(state==1 && cmd=='!') {  // Show last feeds for all cats
     Serial.println();
-    stampaFeeds();
-    Serial.println();
-  } else
-  if(state==3&&cmd=='?') {  // Presenta gatto selezionato
-    Serial.println();
-    stampaGatto(iGatto);
+    printFeeds();
     Serial.println();
   } else
-  if(state==1&&cmd=='?') {  // Presenta la lista dei gatti
+  if(state==3 && cmd=='?') {  // Show selected cat
     Serial.println();
-    stampaGatti();
+    printCat(iCat);
     Serial.println();
   } else
-  if(state!=0&&state!=99) {
-    Serial.println(F("Comando Errato!!"));
+  if(state==1 && cmd=='?') {  // Show list of cats
+    Serial.println();
+    printCats();
+    Serial.println();
+  } else
+  if(state!=0 && state!=99) {
+    Serial.println(F("Wrong command!!"));
   }
 }
