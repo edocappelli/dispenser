@@ -266,7 +266,7 @@ void loop()
     byte iCat=0;
     for(; iCat<nCats; ++iCat) {
       Cat& cat = vCata[iCat];
-      if(verifyode(codeRead,cat.code)) {
+      if(verifyCode(codeRead,cat.code)) {  // check if codeRead == cat.code
         Serial.print(F("Authorization granted to "));
         Serial.println(cat.name);
 
@@ -283,123 +283,113 @@ void loop()
         break; // OK
       }
     }
-    if(iGatto>=nGatti) {
-      Serial.println(F("Tessera non autorizzata"));
-      //accendiLed(ledRosso);
+    if(iCat>=nCats) {
+      Serial.println(F("Authorization denied!!"));
     }
     delay(delayRead);
   }
 }
-// Questa funzione verifica se il codice Letto è autorizzato
-boolean verificaCodice(String codiceLetto, String codiceAutorizzato){
-  if(codiceLetto.equals(codiceAutorizzato)){
+// This function checks wheter the code is authorized
+boolean verifyCode(String codeRead, String codeAuthorized){
+  if(codeRead.equals(codeAuthorized)){
     return true;
   }else{
     return false;
   }
 }
-// Questa funzione permette di accendere un LED per un determinato periodo
-//void accendiLed(int ledPin){
-//  digitalWrite(ledPin,HIGH);
-//  delay(delayLed);
-//  digitalWrite(ledPin,LOW);
-//}
 
 void printDelay(long int mills) {
-    Serial.print(mills/3600000);
+    Serial.print(mills/3600000);  // hours
     Serial.print(F("h "));
-    Serial.print((mills%3600000)/60000);
+    Serial.print((mills%3600000)/60000);  // minutes
     Serial.print(F("m "));
-    Serial.print((mills%60000)/1000);
+    Serial.print((mills%60000)/1000);  // seconds
     Serial.print(F("."));
-    Serial.print((mills%1000)/100); // Una cifra per volta dopo la virgola
-    Serial.print((mills%100)/10);   // Una cifra per volta dopo la virgola
+    Serial.print((mills%1000)/100);  // tenths of second
+    Serial.print((mills%100)/10);  // hundredths of second
     Serial.print(F("s"));
 }
 
  /* return distance in cm */
 int ManageDistance(int pinDistEcho) {
-  //porta bassa l'uscita del trigger
+  // lowers trigger signal
   digitalWrite( pinDistTrig, LOW );
-  //invia un impulso di 10microsec su trigger
+  // send 10-microsecond trigger pulse
   digitalWrite( pinDistTrig, HIGH );
   delayMicroseconds( 10 );
   digitalWrite( pinDistTrig, LOW );
 
-  long durata = pulseIn( pinDistEcho, HIGH );
-  long distanza = 0.0343 * durata / 2;
+  long duration = pulseIn( pinDistEcho, HIGH );
+  long distance = 0.0343 * duration / 2;
 
-  Led* pLed = (pinDistEcho==pinDistEchoS)? &ledS : &ledD;
-  if(distanza<9) pLed->SetBlinkInterval(100000);
-  else if(distanza<11) pLed->SetBlinkInterval(500);
-  else pLed->SetBlinkInterval(100);
-  //else pLed->SetBlinkInterval(0);
+  Led* pLed = (pinDistEcho==pinDistEchoL)? &ledL : &ledR;
+  if(distance<9) pLed->SetBlinkInterval(100000);  // always ON
+  else if(distance<11) pLed->SetBlinkInterval(500);  // slow blinking
+  else pLed->SetBlinkInterval(100);  // fast blinking
  
-  //dopo 38ms è fuori dalla portata del sensore
-  Serial.print((pinDistEcho==pinDistEchoS)?F("S: "):F("D: "));
-  Serial.print(F("distanza: "));
-  if( durata > 38000 ){
-    Serial.println(F("Fuori portata   "));
+  // after 38ms we consider it out of reach
+  Serial.print((pinDistEcho==pinDistEchoL)?F("L: "):F("R: "));
+  Serial.print(F("distance: "));
+  if( duration > 38000 ){
+    Serial.println(F("Out of reach   "));
   }else{
-    Serial.print(distanza); 
+    Serial.print(distance); 
     Serial.println(F("cm     "));
   }
-  return distanza;
+  return distance;
 }
-
+// servo is initialized closed
 void InitServo(Servo& servo,int pinServo) {
-  servo.attach(pinServo);
-  //servo.write(servOpen);
-  //delay(600);
-  servo.write(servClosed);
-  delay(600);
-  servo.detach();
+  servo.attach(pinServo);  // power on
+  servo.write(servoClosed);  // closed state
+  delay(600);  // wait 0.6 sec
+  servo.detach();  // power off
 }
-
-void Gatto::Feed() {
-  Serial.print(F("Feeding gatto "));
-  Serial.print(this->nome);
+// write Cat.Feed() function outside declaration
+void Cat::Feed() {
+  Serial.print(F("Feeding cat "));
+  Serial.print(this->name);
   Serial.println(F("!!"));
   
-  this->pJar->pServo->attach(this->pJar->pinServo);
-  this->pJar->pServo->write(servOpen);
-  delay(200);
-  for(int i=0; i<this->nShakes; ++i) {
-    this->pJar->pServo->write(servOpen-10);
+  this->pJar->pServo->attach(this->pJar->pinServo);  // power on
+  this->pJar->pServo->write(servoOpen);  // open state
+  delay(200);  // wait 0.2 sec
+  for(int i=0; i<this->nShakes; ++i) {  // shake
+    this->pJar->pServo->write(servoOpen-10);
     delay(200);
-    this->pJar->pServo->write(servOpen+30);
+    this->pJar->pServo->write(servoOpen+30);
     delay(200);
   }
-  this->pJar->pServo->write(servClosed);
+  this->pJar->pServo->write(servoClosed);
   delay(600);
-  this->pJar->pServo->detach();
+  this->pJar->pServo->detach();  // power off
 }
 
-void stampaGatto(int iGatto) {
-  if(iGatto>=0&&iGatto<nGatti) {
-    Gatto gatto = vGatti[iGatto];
-    Serial.print(iGatto); Serial.print(F(") "));
-    Serial.print(gatto.nome); Serial.print(F("; "));
-    Serial.print(gatto.codice); Serial.print(F("; "));
-    Serial.print(gatto.nShakes); Serial.print(F("; "));
-    Serial.print(gatto.secsMinDelay); Serial.print(F("; "));
-    Serial.print((gatto.pJar==&jarS)?F("S"):F("D")); Serial.println(F(";"));
+void printCat(int iCat) {
+  if(iCat>=0 && iCat<nCats) {
+    Cat cat = vCats[iCat];
+    Serial.print(iCat); Serial.print(F(") "));
+    Serial.print(cat.name); Serial.print(F("; "));
+    Serial.print(cat.code); Serial.print(F("; "));
+    Serial.print(cat.nShakes); Serial.print(F("; "));
+    Serial.print(cat.secsMinDelay); Serial.print(F("; "));
+    Serial.print((cat.pJar==&jarL)?F("L"):F("R")); Serial.println(F(";"));
   } else {
-    Serial.println(F("Indice di gatto errato!!"));
+    Serial.println(F("Wrong index!!"));
   }
 }
-void stampaGatti() {
-  Serial.print(F("Gatti N.")); Serial.println(nGatti);
-  for(byte ig=0;ig<nGatti;++ig) {
-    stampaGatto(ig);
+void printCats() {
+  Serial.print(F("Number of cats")); Serial.println(nCats);
+  for(byte i=0; i<nCats; ++i) {
+    printCat(i);
   }
 }
-void stampaFeeds(int iGatto) {
-  // Percorre la EEPROM in cerca delle ultime dispensazioni per il gatto selezionato
+void printFeeds(int iCat) 
+  // Searching the EEPROM for the last feeds for the specified cat
   Serial.println(F("Nessuna dispensazione!!"));
 }
-void stampaFeeds() {
-  // Percorre la EEPROM in cerca delle ultime dispensazioni
+void printFeeds() {
+  // Searching the EEPROM for the last feeds
   feeds.list();
 }
   
