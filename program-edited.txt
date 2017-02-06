@@ -395,75 +395,76 @@ void printFeeds() {
   
 void GetConfig() {
   
-  // Inizializza gestore lista dispensazioni
+  // Feed manager initialization
   feeds.init();
 
-  // Legge dati da EEPROM
-  Serial.print(F("EEPROM.length() = "));
+  // Read data from EEPROM
+  Serial.print(F("EEPROM.length() = "));  // bytes
   Serial.println(EEPROM.length());
-  // 1) Verifica che i dati siano del tipo giusto: devono avere la label FEEDER all'offset 0
+  
+  // Check that the data are of right kind: "FEEDER" label at 0 offset
   if(1) {
-    const char IdFEEDER[] PROGMEM = "FEEDER";
+    const char IdFEEDER[] PROGMEM = "FEEDER";  // write string to flash memory
     char IdRead[7] = "";
     bool bOK=true;
-    for(byte i=0;i<6;++i) {
+    for(byte i=0; i<6; ++i) {  // read the first 6 bytes from EEPROM
       IdRead[i]=EEPROM[i];
       if(IdFEEDER[i]!=IdRead[i]) bOK=false;
     }
     Serial.println(IdRead);
     if(bOK) {
-      Serial.println(F("Formato OK!!"));
-      // Legge anche la versione e il n. di gatti
-      byte version = EEPROM[6];
+      Serial.println(F("Format OK!!"));
+      // Read version bit and number of cats
+      byte version = EEPROM[6];  // read 7th byte (version)
       if(version!=0) {
-        Serial.println(F("Versione sconosciuta!!"));
+        Serial.println(F("Unknown version!!"));
         bOK=false;
       } else {
-        Serial.println(F("Versione OK!!"));
+        Serial.println(F("Version OK!!"));
 
         int off=7;
-        nGatti = EEPROM[off];
+        nCats = EEPROM[off];  // read 8th byte (cat number)
         off+=1;
         
-        Serial.print(F("N.Gatti: "));
-        Serial.println(nGatti);
-        if(nGatti>NMaxGatti) {
-          Serial.print(F("N.Gatti Troppo elevato!! ("));
-          Serial.print(nGatti);
+        Serial.print(F("number of cats: "));
+        Serial.println(nCats);
+        if(nCats>NMaxCats) {
+          Serial.print(F("Too many cats!! ("));
+          Serial.print(nCats);
           Serial.print(F(">"));
-          Serial.print(NMaxGatti);
+          Serial.print(NMaxCats);
           Serial.println(F(")"));
-          nGatti=NMaxGatti;
+          nCats=NMaxCats;
         }
-        for(int ig=0;ig<nGatti;++ig){
-          Gatto& gatto = vGatti[ig];
-          char bRead;
-          gatto.nome="";
-          for(byte i=0;i<8;++i) {
-            EEPROM.get(off+i,bRead); // Read gatto.nome
+        for(int j=0; j<nCats; ++j){  // for each cat
+          Cat& cat = vCats[j];
+          char bRead;  // single ASCII character (1B)
+          cat.name="";
+          for(byte i=0; i<8; ++i) {  // read name
+            EEPROM.get(off+i, bRead); // Read cat.name
             if(bRead=='\0') break;
-            gatto.nome+=bRead;
+            cat.name+=bRead;
           }
-          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; nome="); Serial.print(gatto.nome); Serial.println(";"); 
-          off+=9;
-          gatto.codice="";
-          for(byte i=0;i<10;++i) {
-            EEPROM.get(off+i,bRead);  // Read gatto.codice
+          Serial.print("Name: "); Serial.print(cat.name); Serial.println(";"); 
+          off+=9;  // jump 9 bytes ahead
+          cat.code="";
+          for(byte i=0; i<10; ++i) {  // read code
+            EEPROM.get(off+i, bRead);  // Read cat.code
             if(bRead=='\0') break;
-            gatto.codice+=bRead;
+            cat.code+=bRead;
           }
-          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; codice="); Serial.print(gatto.codice); Serial.println(";"); 
-          off+=11;
-          EEPROM.get(off,gatto.nShakes);      // Read gatto.nShakes
-          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; nShakes="); Serial.print(gatto.nShakes); Serial.println(";"); 
-          off+=1;
-          EEPROM.get(off,gatto.secsMinDelay); // Read gatto.secsMinDelay
-          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; secsMinDelay="); Serial.print(gatto.secsMinDelay); Serial.println(";"); 
-          off+=2;
-          EEPROM.get(off,bRead);              // Read gatto.jar
-          //Serial.print(ig); Serial.print(") off="); Serial.print(off); Serial.print("; bRead="); Serial.print(bRead); Serial.println(";"); 
-          gatto.pJar=(bRead=='S')? &jarS : &jarD;
-          off+=1;
+          Serial.print("Code : "); Serial.print(cat.code); Serial.println(";");
+          off+=11;  // jump 11 bytes ahead
+          EEPROM.get(off, cat.nShakes);      // Read gatto.nShakes
+          Serial.print("Shakes: "); Serial.print(cat.nShakes); Serial.println(";");
+          off+=1;  // jump 1 byte ahead
+          EEPROM.get(off, cat.secsMinDelay); // Read cat.secsMinDelay
+          Serial.print("Delay(min): "); Serial.print(cat.secsMinDelay); Serial.println(";");
+          off+=2;  // jump 2 bytes ahead
+          EEPROM.get(off, bRead);            // Read cat.jar
+          Serial.print("Jar: "); Serial.print((bRead=='L')? "Left" : "Right"); Serial.println(";"); 
+          cat.pJar=(bRead=='L')? &jarL : &jarR;  // assign pointer
+          off+=1;  // jump 1 byte ahead
         }
         stampaGatti();
         
