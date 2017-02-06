@@ -122,8 +122,8 @@ struct Feeds {
     word minsDelay:14;  // 14 bits to store the delay in minutes
   };
   void init() {  // initialize the adresses
-    offStart=offActual=8+NMaxCats*24;  // 
-    sizeEEPROM=EEPROM.length();
+    offStart=offActual=8+NMaxCats*24;  // identification string + Cat structures
+    sizeEEPROM=EEPROM.length();  // number of bytes/addresses
   }
   void addFeed(byte iCat) {  // add a new Feed event to the buffer
     word wRead;
@@ -133,7 +133,7 @@ struct Feeds {
       wWrite.minsDelay=millis()/60000;  // minutes
     };
     if(iCat==(byte)(-1)) Serial.println(F("Feeds cat: start recording!"));
-    else { Serial.print(F("Feeds cat")); Serial.println(iCat); }
+    else { Serial.print(F("Feeds cat")); Serial.println(iCat); }  // F: store on flash memory
 
     EEPROM.get(this->offActual, wRead);  // read the word at offActual
     if(wRead==(word)(-1)){  // first terminator
@@ -212,16 +212,16 @@ void setup(){
 
   /* Init Distance Meters */
   pinMode(pinDistTrig, OUTPUT); 
-  pinMode(pinDistEchoS, INPUT); 
-  pinMode(pinDistEchoD, INPUT); 
+  pinMode(pinDistEchoL, INPUT); 
+  pinMode(pinDistEchoR, INPUT); 
 
   // Gestione Leds
-  pinMode(ledS.pin, OUTPUT); 
-  pinMode(ledD.pin, OUTPUT); 
-  ledS.SetBlinkInterval(100000);
-  ledD.SetBlinkInterval(100000);
+  pinMode(ledL.pin, OUTPUT); 
+  pinMode(ledR.pin, OUTPUT); 
+  ledL.SetBlinkInterval(100000);  // always ON
+  ledR.SetBlinkInterval(100000);
 
-  // Legge dati da EEPROM
+  // Read data from EEPROM
   GetConfig();
 
   Serial.println(F("Setup OK"));
@@ -230,55 +230,54 @@ void setup(){
 void loop()
 {
   /* Distance Meters */
-  mills=millis();
+  mills=millis();  // read time
   
   if(mills-millsLast>=millsInterval) {
     //Serial.print(F("------------mills: ")); Serial.println(mills);
     millsLast = mills;
-    ManageDistance(pinDistEchoS);
-    //ManageDistance(pinDistEchoD);
+    ManageDistance(pinDistEchoL);  // set LED according to distance read
+    ManageDistance(pinDistEchoR);
   }
 
   manageInput();
   
-  // Gestione Leds
-  ledS.Manage();
-  ledD.Manage();
+  // LED management
+  ledL.Manage();
+  ledR.Manage();
 
-  // Se viene letta una tessera
+  // if a tag/card is read
   if (RC522.isCard())
   {
-    // Viene letto il suo codice 
+    // read its code
     RC522.readCardSerial();
-    String codiceLetto="";
+    String codeRead="";
 
     printDelay(mills);
-    Serial.println(F(" - Codice delle tessera letto:"));
+    Serial.println(F(" - Tag code read:"));
   
-    // Viene caricato il codice della tessera, all'interno di una Stringa
+    // Write tag code to string
     for(byte i = 0; i <= 4; i++)
     {
-      codiceLetto+= String (RC522.serNum[i],HEX);
-      codiceLetto.toUpperCase();
+      codeRead+= String (RC522.serNum[i],HEX);
+      codeRead.toUpperCase();
     }
-    Serial.println(codiceLetto);
+    Serial.println(codeRead);
 
-    byte iGatto=0;
-    for(; iGatto<nGatti; ++iGatto) {
-      Gatto& gatto = vGatti[iGatto];
-      if(verificaCodice(codiceLetto,gatto.codice)) {
-        Serial.print(F("Tessera autorizzata per gatto "));
-        Serial.println(gatto.nome);
-//        accendiLed(ledVerde);
+    byte iCat=0;
+    for(; iCat<nCats; ++iCat) {
+      Cat& cat = vCata[iCat];
+      if(verifyode(codeRead,cat.code)) {
+        Serial.print(F("Authorization granted to "));
+        Serial.println(cat.name);
 
-        if(gatto.millsLastFeed!=0 && mills-gatto.millsLastFeed<gatto.secsMinDelay*1000) {
-          Serial.println(F("Richiesta troppo ravvicinata!!"));
+        if(cat.millsLastFeed!=0 && mills-cat.millsLastFeed<cat.secsMinDelay*1000) {
+          Serial.println(F("Too soon!!"));
         } else {
-          gatto.millsLastFeed=mills;
+          cat.millsLastFeed=mills;
 
-          gatto.Feed();
+          cat.Feed();
 
-          feeds.addFeed(iGatto);
+          feeds.addFeed(iCat);
         }
  
         break; // OK
