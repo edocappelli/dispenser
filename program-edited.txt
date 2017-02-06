@@ -39,9 +39,9 @@ Servo myServoR;  // Servo instance
 #define pinDistEchoL 2  // Echo pin for Left-side detector 
 #define pinDistEchoR 4 // Echo pin for Right-side detector
 // Delay between consecutive measurements
-#define millisInterval 10000  // one distance read every 10 seconds
-long millis=0;
-long millisLast=0;
+#define millsInterval 10000  // one distance read every 10 seconds
+long mills=0;
+long millsLast=0;
 
 /* Leds */
 #define pinLedL 7  // Left-side LED
@@ -51,7 +51,7 @@ struct Led {
   byte pin;
   long blinkInterval;  // in ms: 0=OFF; >100000=Always ON
   byte dutyCycle;  // time the LED stays ON in ms
-  long lastMillis;
+  long lastMills;
   bool bState;  // LED State: true=LED ON; false=LED OFF
   void Manage() {  // manages the LED state according to the blinkInterval.
     long mills = millis();
@@ -67,16 +67,16 @@ struct Led {
         SetLed();
       }
     } else
-    if(millis-lastMillis>blinkInterval) {  // blinking mode
+    if(mills-lastMills>blinkInterval) {  // blinking mode
       bState=!bState;  // change state so the LED blinks
-      lastMillis=millis;  // reset the lastMillis
+      lastMills=mills;  // reset the lastMillis
       SetLed();
     }
   }
   void SetBlinkInterval(long blinkInterval, byte dutyCycle=50) {
     this->blinkInterval = blinkInterval;
     this->dutyCycle = dutyCycle;
-    if(lastMillis==0) lastMillis=millis();  // if there is no time record, read from millis()
+    if(lastMills==0) lastMills=millis();  // if there is no time record, read from millis()
   }
   void SetLed() {
     digitalWrite(pin, bState?HIGH:LOW);  // turn the LED ON or OFF according to the state
@@ -102,7 +102,7 @@ struct Cat {
   byte nShakes;  //number of shakes per feeding event
   word secsMinDelay;  // minimum delay between consecutive meals
   Jar* pJar;  // pointer to Jar object
-  long millisLastFeed;  // time since last meal in ms
+  long millsLastFeed;  // time since last meal in ms
   void Feed();  // to be defined
 } vCats[NMaxCats]={  // vector of Cat instances
   {"Renato" , "14B4B19988", 5, 60, &jarL},
@@ -291,7 +291,7 @@ void loop()
     delay(delayRead);
   }
 }
-// Questa funzione verifica se il codice Letto è autorizzato
+// Questa funzione verifica se il codice Letto Ã¨ autorizzato
 boolean verificaCodice(String codiceLetto, String codiceAutorizzato){
   if(codiceLetto.equals(codiceAutorizzato)){
     return true;
@@ -336,7 +336,7 @@ int ManageDistance(int pinDistEcho) {
   else pLed->SetBlinkInterval(100);
   //else pLed->SetBlinkInterval(0);
  
-  //dopo 38ms è fuori dalla portata del sensore
+  //dopo 38ms Ã¨ fuori dalla portata del sensore
   Serial.print((pinDistEcho==pinDistEchoS)?F("S: "):F("D: "));
   Serial.print(F("distanza: "));
   if( durata > 38000 ){
@@ -551,7 +551,7 @@ void manageInput(){
   String str;
   while(Serial.available()>0) {
     // TODO: configuration
-    // leggo un carattere alla volta: abbiamo una serie di comandi: ogni comando è formato da un lettera seguita da un ':' seguita a sua volta da 1 o piu' parametri e terminante con un '\n'
+    // leggo un carattere alla volta: abbiamo una serie di comandi: ogni comando Ã¨ formato da un lettera seguita da un ':' seguita a sua volta da 1 o piu' parametri e terminante con un '\n'
     byte ch = Serial.read();
     if(state==99) continue; // Vuota il buffer
     //Serial.print(ch); // Echo
@@ -565,7 +565,7 @@ void manageInput(){
                    if(cmd=='-');  // Rimuove gatto
                    if(cmd=='N');  // Imposta nome gatto
                    if(cmd=='C');  // Imposta codice RFID
-                   if(cmd=='#');  // Imposta quantità di cibo (n. scosse)
+                   if(cmd=='#');  // Imposta quantitÃ  di cibo (n. scosse)
                    if(cmd=='S');  // Secondi di minima attesa tra due dispensazioni
                    if(cmd=='J');  // Imposta Barattolo corrispondente
                    if(cmd=='!');  // Lista ultime dispensazioni
@@ -574,7 +574,7 @@ void manageInput(){
     if(state==2) iGatto=ch-'0';
     if(state==3) if(ch!=':') { state=99; cmd=ch; } /*Vuota il buffer ed esce*/
                  else { // Verifica correttezza gatto
-                   if(cmd=='#') {  // Imposta quantità di cibo (n. scosse)
+                   if(cmd=='#') {  // Imposta quantitÃ  di cibo (n. scosse)
                      // Leggo un intero
                      //num = Serial.parseInt();
                      str = Serial.readString();
@@ -604,7 +604,7 @@ void manageInput(){
                  }
     state++;
   }
-  if(state==5&&cmd=='#') {  // Imposta quantità di cibo (n. scosse)
+  if(state==5&&cmd=='#') {  // Imposta quantitÃ  di cibo (n. scosse)
     Serial.println();
     if(iGatto>=0&&iGatto<nGatti) {
       Gatto& gatto=vGatti[iGatto];
