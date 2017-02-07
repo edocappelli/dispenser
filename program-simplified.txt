@@ -179,7 +179,7 @@ void loop()
         Serial.print(F("Tag authorized for cat "));
         Serial.println(cat.name);
 
-        if(cat.millsLastFeed!=0 && mills-cat.millsLastFeed<cat.secsMinDelay*1000) {
+        if(cat.millsLastFeed!=0 && mills-cat.millsLastFeed<cat.secsMinDelay*(long)1000) {
           Serial.println(F("Too soon!"));
         } else {
           cat.millsLastFeed=mills;
