@@ -168,7 +168,7 @@ struct Feeds {
           // parto da offStart alla posizione offActual
           for(;off<=this->sizeEEPROM-sizeof(word);off+=sizeof(word)) {
             EEPROM.get(off,wRead);
-            Serial.print(((Feed*)&wRead)->iGatto);
+            Serial.print(((Feed*)&wRead)->iCat);
             Serial.print(F(") "));
             Serial.print(((Feed*)&wRead)->minsDelay);
             Serial.println(F(" min"));
@@ -180,7 +180,7 @@ struct Feeds {
       int off = this->offStart;
       for(;off<this->offActual;off+=sizeof(word)) {
         EEPROM.get(off,wRead);
-        Serial.print(((Feed*)&wRead)->iGatto);
+        Serial.print(((Feed*)&wRead)->iCat);
         Serial.print(F(") "));
         Serial.print(((Feed*)&wRead)->minsDelay);
         Serial.println(F(" min"));
@@ -265,7 +265,7 @@ void loop()
 
     byte iCat=0;
     for(; iCat<nCats; ++iCat) {
-      Cat& cat = vCata[iCat];
+      Cat& cat = vCats[iCat];
       if(verifyCode(codeRead,cat.code)) {  // check if codeRead == cat.code
         Serial.print(F("Authorization granted to "));
         Serial.println(cat.name);
@@ -289,7 +289,7 @@ void loop()
     delay(delayRead);
   }
 }
-// This function checks wheter the code is authorized
+// This function checks whether the code is authorized
 boolean verifyCode(String codeRead, String codeAuthorized){
   if(codeRead.equals(codeAuthorized)){
     return true;
@@ -384,7 +384,7 @@ void printCats() {
     printCat(i);
   }
 }
-void printFeeds(int iCat) 
+void printFeeds(int iCat) {
   // Searching the EEPROM for the last feeds for the specified cat
   Serial.println(F("Nessuna dispensazione!!"));
 }
@@ -598,7 +598,7 @@ void manageInput(){
     Serial.println();
     if(iCat>=0 && iCat<nCats) {
       Cat& cat=vCats[iCat];
-      char bNum = str.toInt();
+      byte bNum = str.toInt();
       Serial.print(iCat); Serial.print(F(") bNum=")); Serial.println(bNum);
       cat.nShakes = bNum;
       updateCats();
@@ -616,7 +616,7 @@ void manageInput(){
       Serial.print(iCat); Serial.print(F(") num=")); Serial.println(num);
       cat.secsMinDelay = num;
       updateCats();
-      stampaCat(iCat);
+      printCat(iCat);
     } else {
       Serial.println(F("Wrong cat index!!"));
     }
@@ -628,8 +628,8 @@ void manageInput(){
       Cat& cat=vCats[iCat];
       char ch = str[0];
       Serial.print(iCat); Serial.print(F(") ch=")); Serial.println(ch);
-      if(ch=='0'||ch=='S'||ch=='s') cat.pJar=&jarS;
-      else if(ch=='1'||ch=='D'||ch=='d') cat.pJar=&jarD;
+      if(ch=='0'||ch=='L'||ch=='l') cat.pJar=&jarL;
+      else if(ch=='1'||ch=='R'||ch=='r') cat.pJar=&jarR;
       else Serial.println(F("Jar not found!!"));
       updateCats();
       printCat(iCat);
@@ -671,7 +671,7 @@ void manageInput(){
       Serial.println(F("Remove cat:"));
       printCat(iCat);
       Serial.println();
-      for(++iCat; iGatto<nCats; ++iCat) {
+      for(++iCat; iCat<nCats; ++iCat) {
         vCats[iCat-1]=vCats[iCat];
       }
       nCats--;
@@ -686,9 +686,9 @@ void manageInput(){
     Serial.println();
     if(iCat>=0 && iCat<nCats) {
       Cat& cat=vCats[iCat];
-      if(nCats<NMaxCatsi) {
+      if(nCats<NMaxCats) {
         nCats++;
-        for(byte ig=nCats-1; ig>iCats; --ig) {
+        for(byte ig=nCats-1; ig>iCat; --ig) {
           vCats[ig]=vCats[ig-1];
         }
         updateCats();
@@ -718,7 +718,7 @@ void manageInput(){
   if(state==3 && cmd=='!') {  // Show last feeds for this cat
     Serial.println();
     if(iCat>=0 && iCat<nCats) {
-      stampaFeeds(iCat);
+      printFeeds(iCat);
     } else {
       Serial.println(F("Wrong cat index!!"));
     }
